@@ -31,6 +31,8 @@ Layout :: struct {
 	widgets: [dynamic]^Widget,
 	options: LayoutOptions,
 	bounds: linalg.Vector2f32,
+	outer_size: linalg.Vector2f32,
+	padding: f32,
 	origin: linalg.Vector2f32,
 	cursor: linalg.Vector2f32,
 	active: bool,
@@ -46,11 +48,10 @@ _g_ui: UIState
 @(private)
 _g_current_layout: ^Layout
 
-start_layout :: proc(type: LayoutType, max_w, max_h: f32, start_pos: linalg.Vector2f32 = {10.0, 10.0}, spacing: f32 = 10.0) -> ^Layout {
+start_layout :: proc(type: LayoutType, max_w, max_h: f32, start_pos: linalg.Vector2f32 = {10.0, 10.0}, spacing: f32 = 10.0, padding: f32 = 0) -> ^Layout {
 	if _g_ui.stack_index >= MAX_LAYOUT_STACK {
 		panic("UI: Layout stack overflow!")
 	}
-
 	l := &_g_ui.layout_stack[_g_ui.stack_index]
 	_g_ui.stack_index += 1
 
@@ -60,15 +61,12 @@ start_layout :: proc(type: LayoutType, max_w, max_h: f32, start_pos: linalg.Vect
 		type,
 		spacing,
 	}
+	l.padding = padding // content size, as passed in
 	l.bounds = linalg.Vector2f32{max_w, max_h}
+	l.outer_size = l.bounds + {padding * 2, padding * 2}
 	l.active = true
 
-	if _g_ui.stack_index > 1 {
-		parent := &_g_ui.layout_stack[_g_ui.stack_index - 2]
-		l.cursor = parent.cursor
-	} else {
-		l.cursor = start_pos
-	}
+	l.cursor = start_pos
 	l.origin = l.cursor
 	_g_current_layout = l
 	return _g_current_layout
@@ -89,8 +87,7 @@ end_layout :: proc() {
     _g_ui.stack_index -= 1
     if _g_ui.stack_index > 0 {
         _g_current_layout = &_g_ui.layout_stack[_g_ui.stack_index - 1]
-        // Move parent cursor by the child's size
-        _advance_layout(current.bounds)
+        _advance_layout(current.outer_size)
     } else {
         _g_current_layout = nil
     }

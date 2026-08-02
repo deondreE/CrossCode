@@ -44,43 +44,37 @@ point_is_rect :: proc(p: linalg.Vector2f32, rect_pos, rect_size: linalg.Vector2f
 		p.y <= rect_pos.y + rect_size.y
 }
 
-// @Todo: Wrapped text
 label :: proc(font: ^Font, text: string, max_w: f32 = 0, color: [4]f32 = {1, 1, 1, 1}) {
-    l := _g_current_layout
-    if l == nil do return
+	l := _g_current_layout
+	if l == nil do return
 
-    words := strings.split(text, " ", context.temp_allocator)
+	words := strings.split(text, " ", context.temp_allocator)
 
-    line_start_x := l.cursor.x
-    space_width := measure_text(font, " ").x
-    line_height := font.pixel_height
+	line_start_x := l.cursor.x
+	space_width := measure_text(font, " ").x
+	line_height := font.pixel_height
 
-    // 0 (or unset) means "use whatever room the layout has left"
-    layout_right_edge := line_start_x + (l.bounds.x - (line_start_x - 10.0))
-    right_edge := max_w > 0 ? line_start_x + max_w : layout_right_edge
+	layout_right_edge := l.origin.x + l.bounds.x
+	right_edge := max_w > 0 ? min(line_start_x + max_w, layout_right_edge) : layout_right_edge
 
-    current_x := line_start_x
-    current_y := l.cursor.y
+	current_x := line_start_x
+	current_y := l.cursor.y
+	total_h: f32 = line_height
+	max_line_w: f32 = 0
 
-    total_h: f32 = line_height
-    max_line_w: f32 = 0
+	for word in words {
+		word_size := measure_text(font, word)
+		if current_x + word_size.x > right_edge {
+			current_x = line_start_x
+			current_y += line_height + l.options.spacing
+			total_h += line_height + l.options.spacing
+		}
+		draw_text(font, word, {current_x, current_y}, color)
+		current_x += word_size.x + space_width
+		if current_x > max_line_w do max_line_w = current_x
+	}
 
-    for word in words {
-        word_size := measure_text(font, word)
-
-        if current_x + word_size.x > right_edge {
-            current_x = line_start_x
-            current_y += line_height + l.options.spacing
-            total_h += line_height + l.options.spacing
-        }
-
-        draw_text(font, word, {current_x, current_y}, color)
-        current_x += word_size.x + space_width
-
-        if current_x > max_line_w do max_line_w = current_x
-    }
-
-    _advance_layout({max_line_w - line_start_x, total_h})
+	_advance_layout({max_line_w - line_start_x, total_h})
 }
 
 // Checkbox element
@@ -193,13 +187,18 @@ spacer :: proc(amount: f32) {
 }
 
 // Group widget: Starts a new layout and draws a background panel.
-begin_group :: proc(label: string, size: linalg.Vector2f32, spacing: f32 = 20.0) {
+begin_group :: proc(label: string, size: linalg.Vector2f32, gap: f32 = 20.0, padding: f32 = 10.0) {
 	pos := _g_current_layout.cursor
 
-	draw_rect(pos, size, {0.15, 0.15, 0.18, 1.0})
-	draw_rect(pos, {size.x, 2}, {0.3, 0.3, 0.35, 1.0})
+	outer_size := size + padding * 2
+	if padding * 2 > size.x || padding * 2 > size.y {
+		outer_size = size + padding
+	}
 
-	start_layout(.Vertical, size.x - 20, size.y - 20, spacing)
+	draw_rect(pos, outer_size, {0.15, 0.15, 0.18, 1.0})
+	draw_rect(pos, {outer_size.x, 2}, {0.3, 0.3, 0.35, 1.0})
+
+	start_layout(.Vertical, size.x, size.y, start_pos = pos + padding, spacing = gap, padding = padding)
 }
 
 end_group :: proc() {
