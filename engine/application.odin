@@ -53,6 +53,8 @@ run :: proc(app: ^Application) {
     for app.running && !window_should_close(&app.window) {
         window_poll(&app.window)
 
+        _update_input(&app.window)
+
         render_begin_frame()
         if app.spec.update != nil {
             app.spec.update(app)

@@ -17,8 +17,8 @@ window_create :: proc(title: string, width, height: i32) -> (Window, bool) {
         return {}, false
     }
 
-    glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 3)
-    glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 3)
+    glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 4)
+    glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 6)
     glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
 
     ctitle := fmt.ctprint(title)
