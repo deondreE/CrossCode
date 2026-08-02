@@ -62,6 +62,7 @@ run :: proc(app: ^Application) {
         if app.spec.update != nil {
             app.spec.update(app)
         }
+        assert(_g_ui.stack_index == 0, "UI: mismatched start_layout/end_layout — stack not empty at end of frame")
         render_end_frame()
 
         window_swap(&app.window)

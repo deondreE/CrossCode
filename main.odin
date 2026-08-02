@@ -25,11 +25,11 @@ update :: proc(app: ^engine.Application) {
 		fmt.println("Button Pressed")
 	}
 
-	engine.begin_group("Settings Form", {220, 220})
-		engine.label(&my_font, "Form");
+	engine.begin_group("Settings Form", {220, 220}, 40)
+		engine.label(&my_font, "Test this string that should be too long overall this is a super long lopng long long string", 200);
 
 		if (engine.checkbox(&my_font, "Test", &test_val)) {
-			fmt.println("Test")
+			fmt.println("")
 		}
 		engine.label(&my_font, fmt.tprintf("%.2f", slider_val))
 

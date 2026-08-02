@@ -1,5 +1,7 @@
 package engine
 import "core:math/linalg"
+import "core:c"
+import "core:strings"
 import "vendor:glfw"
 
 InputState :: struct {
@@ -43,15 +45,42 @@ point_is_rect :: proc(p: linalg.Vector2f32, rect_pos, rect_size: linalg.Vector2f
 }
 
 // @Todo: Wrapped text
-label :: proc(font: ^Font, text: string, color: Color = {1, 1, 1, 1}) {
-	if _g_current_layout == nil do return
+label :: proc(font: ^Font, text: string, max_w: f32 = 0, color: [4]f32 = {1, 1, 1, 1}) {
+    l := _g_current_layout
+    if l == nil do return
 
-	size := measure_text(font, text)
-	pos := _g_current_layout.cursor
+    words := strings.split(text, " ", context.temp_allocator)
 
-	draw_text(font, text, pos, {color.r, color.g, color.b, color.a})
+    line_start_x := l.cursor.x
+    space_width := measure_text(font, " ").x
+    line_height := font.pixel_height
 
-	_advance_layout(size)
+    // 0 (or unset) means "use whatever room the layout has left"
+    layout_right_edge := line_start_x + (l.bounds.x - (line_start_x - 10.0))
+    right_edge := max_w > 0 ? line_start_x + max_w : layout_right_edge
+
+    current_x := line_start_x
+    current_y := l.cursor.y
+
+    total_h: f32 = line_height
+    max_line_w: f32 = 0
+
+    for word in words {
+        word_size := measure_text(font, word)
+
+        if current_x + word_size.x > right_edge {
+            current_x = line_start_x
+            current_y += line_height + l.options.spacing
+            total_h += line_height + l.options.spacing
+        }
+
+        draw_text(font, word, {current_x, current_y}, color)
+        current_x += word_size.x + space_width
+
+        if current_x > max_line_w do max_line_w = current_x
+    }
+
+    _advance_layout({max_line_w - line_start_x, total_h})
 }
 
 // Checkbox element
@@ -98,7 +127,7 @@ button :: proc(font: ^Font, label: string, size: linalg.Vector2f32 = {100, 40}, 
 
 	pos := _g_current_layout.cursor
 
-	w := new(Widget)
+	w := new(Widget, _g_ui.allocator)
 	w.size = size
 	w.position = pos
 	append_widget(_g_current_layout, w)
@@ -164,13 +193,13 @@ spacer :: proc(amount: f32) {
 }
 
 // Group widget: Starts a new layout and draws a background panel.
-begin_group :: proc(label: string, size: linalg.Vector2f32) {
+begin_group :: proc(label: string, size: linalg.Vector2f32, spacing: f32 = 20.0) {
 	pos := _g_current_layout.cursor
 
 	draw_rect(pos, size, {0.15, 0.15, 0.18, 1.0})
 	draw_rect(pos, {size.x, 2}, {0.3, 0.3, 0.35, 1.0})
 
-	start_layout(.Vertical, size.x - 20, size.y - 20, 20.0)
+	start_layout(.Vertical, size.x - 20, size.y - 20, spacing)
 }
 
 end_group :: proc() {

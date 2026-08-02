@@ -31,6 +31,7 @@ Layout :: struct {
 	widgets: [dynamic]^Widget,
 	options: LayoutOptions,
 	bounds: linalg.Vector2f32,
+	origin: linalg.Vector2f32,
 	cursor: linalg.Vector2f32,
 	active: bool,
 }
@@ -53,12 +54,7 @@ start_layout :: proc(type: LayoutType, max_w, max_h: f32, start_pos: linalg.Vect
 	l := &_g_ui.layout_stack[_g_ui.stack_index]
 	_g_ui.stack_index += 1
 
- 	if l.widgets.allocator.data == nil {
-        l.widgets = make([dynamic]^Widget, _g_ui.allocator)
-    } else {
-        l.widgets.allocator = _g_ui.allocator
-        clear(&l.widgets)
-    }
+	l.widgets = make([dynamic]^Widget, 0, 8, _g_ui.allocator)
 
 	l.options = LayoutOptions{
 		type,
@@ -73,6 +69,7 @@ start_layout :: proc(type: LayoutType, max_w, max_h: f32, start_pos: linalg.Vect
 	} else {
 		l.cursor = start_pos
 	}
+	l.origin = l.cursor
 	_g_current_layout = l
 	return _g_current_layout
 }
@@ -111,8 +108,7 @@ _advance_layout :: proc(size: linalg.Vector2f32) {
 
 @(private)
 _update_layout :: proc(l: ^Layout) {
-	l.cursor = {10, 10}
-	// Update the layout of the widgets in the current layout.
+	l.cursor = l.origin
 	for widget in l.widgets {
         widget.position = l.cursor
 
