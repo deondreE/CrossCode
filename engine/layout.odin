@@ -1,5 +1,17 @@
 package engine
 import "core:math/linalg"
+import "core:mem"
+
+MAX_LAYOUT_STACK :: 16
+
+UI_ARENA_SIZE :: 1024 * 1024
+
+UIState :: struct {
+	arena: mem.Arena,
+	allocator: mem.Allocator,
+	layout_stack: [MAX_LAYOUT_STACK]Layout,
+	stack_index: int
+}
 
 // Layout represents the layout of a UI element.
 LayoutType :: enum {
@@ -23,27 +35,45 @@ Layout :: struct {
 	active: bool,
 }
 
+LayoutStack :: struct {
+	layouts: [MAX_LAYOUT_STACK]Layout,
+	index: int
+}
+
 @(private)
-_g_layout_storage: Layout
+_g_ui: UIState
 @(private)
 _g_current_layout: ^Layout
 
-start_layout :: proc(type: LayoutType, max_w, max_h: f32, start_pos: linalg.Vector2f32 = {10.0, 10.0}) -> ^Layout {
-	if _g_layout_storage.widgets == nil {
-		_g_layout_storage.widgets = make([dynamic]^Widget)
+start_layout :: proc(type: LayoutType, max_w, max_h: f32, start_pos: linalg.Vector2f32 = {10.0, 10.0}, spacing: f32 = 10.0) -> ^Layout {
+	if _g_ui.stack_index >= MAX_LAYOUT_STACK {
+		panic("UI: Layout stack overflow!")
 	}
 
-	clear(&_g_layout_storage.widgets)
+	l := &_g_ui.layout_stack[_g_ui.stack_index]
+	_g_ui.stack_index += 1
 
-	_g_layout_storage.options = LayoutOptions{
-		type = type,
-		spacing = 10.0,
+ 	if l.widgets.allocator.data == nil {
+        l.widgets = make([dynamic]^Widget, _g_ui.allocator)
+    } else {
+        l.widgets.allocator = _g_ui.allocator
+        clear(&l.widgets)
+    }
+
+	l.options = LayoutOptions{
+		type,
+		spacing,
 	}
-	_g_layout_storage.bounds = linalg.Vector2f32{max_w, max_h}
-	_g_layout_storage.cursor = start_pos
-	_g_layout_storage.active = true
+	l.bounds = linalg.Vector2f32{max_w, max_h}
+	l.active = true
 
-	_g_current_layout = &_g_layout_storage
+	if _g_ui.stack_index > 1 {
+		parent := &_g_ui.layout_stack[_g_ui.stack_index - 2]
+		l.cursor = parent.cursor
+	} else {
+		l.cursor = start_pos
+	}
+	_g_current_layout = l
 	return _g_current_layout
 }
 
@@ -53,17 +83,20 @@ append_widget :: proc(l: ^Layout, widget: ^Widget) {
 	}
 }
 
-end_layout :: proc(l: ^Layout) {
-	if l == nil do return
+end_layout :: proc() {
+    if _g_ui.stack_index == 0 do return
 
-	_update_layout(l)
-	for w in l.widgets {
-		// draw_rect()
-		free(w)
-	}
+    current := &_g_ui.layout_stack[_g_ui.stack_index - 1]
+    _update_layout(current) // Calculate final positions
 
-	l.active = false
-	_g_current_layout = nil
+    _g_ui.stack_index -= 1
+    if _g_ui.stack_index > 0 {
+        _g_current_layout = &_g_ui.layout_stack[_g_ui.stack_index - 1]
+        // Move parent cursor by the child's size
+        _advance_layout(current.bounds)
+    } else {
+        _g_current_layout = nil
+    }
 }
 
 @(private)
@@ -89,4 +122,18 @@ _update_layout :: proc(l: ^Layout) {
             l.cursor.y += widget.size.y + l.options.spacing
         }
     }
+}
+
+@(private)
+_ui_init :: proc() {
+	data := make([]byte, UI_ARENA_SIZE)
+	mem.arena_init(&_g_ui.arena, data)
+	_g_ui.allocator = mem.arena_allocator(&_g_ui.arena)
+}
+
+@(private)
+_ui_begin_frame :: proc() {
+	free_all(_g_ui.allocator)
+	_g_ui.stack_index = 0
+	_g_current_layout = nil
 }

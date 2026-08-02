@@ -38,6 +38,8 @@ create :: proc (spec: ApplicationSpec) -> (Application, bool) {
         render_resize(width, height)
     })
 
+    _ui_init()
+
     return app, true
 }
 
@@ -55,6 +57,7 @@ run :: proc(app: ^Application) {
 
         _update_input(&app.window)
 
+        _ui_begin_frame()
         render_begin_frame()
         if app.spec.update != nil {
             app.spec.update(app)

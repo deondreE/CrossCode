@@ -24,21 +24,22 @@ update :: proc(app: ^engine.Application) {
 		// handle quit
 		fmt.println("Button Pressed")
 	}
-	defer engine.end_layout(l)
 
-	l1 := engine.start_layout(.Vertical, 200, 500, {30, 50})
-	engine.label(&my_font, "Form");
+	engine.begin_group("Settings Form", {220, 220})
+		engine.label(&my_font, "Form");
 
-	if (engine.checkbox(&my_font, "Test", &test_val)) {
-		fmt.println("Test")
-	}
-	engine.label(&my_font, fmt.tprintf("%.2f", slider_val))
+		if (engine.checkbox(&my_font, "Test", &test_val)) {
+			fmt.println("Test")
+		}
+		engine.label(&my_font, fmt.tprintf("%.2f", slider_val))
 
-	if (engine.slider(&slider_val, 0, 100)) {
-		fmt.println(slider_val)
-	}
+		if (engine.slider(&slider_val, 0, 100)) {
+			fmt.println(slider_val)
+		}
+	engine.end_group()
 
-	defer engine.end_layout(l1)
+	engine.end_layout()
+
 }
 
 main :: proc() {

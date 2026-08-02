@@ -162,3 +162,17 @@ spacer :: proc(amount: f32) {
 		_g_current_layout.cursor.x += amount
 	}
 }
+
+// Group widget: Starts a new layout and draws a background panel.
+begin_group :: proc(label: string, size: linalg.Vector2f32) {
+	pos := _g_current_layout.cursor
+
+	draw_rect(pos, size, {0.15, 0.15, 0.18, 1.0})
+	draw_rect(pos, {size.x, 2}, {0.3, 0.3, 0.35, 1.0})
+
+	start_layout(.Vertical, size.x - 20, size.y - 20, 20.0)
+}
+
+end_group :: proc() {
+	end_layout()
+}
