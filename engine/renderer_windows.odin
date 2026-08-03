@@ -31,7 +31,8 @@ Renderer :: struct {
     texture_count: int,
 
     white_tex: u32, // 1x1 white for solid-color quads
-    proj: matrix[4, 4]f32
+    proj: matrix[4, 4]f32,
+    screen_h: i32
 }
 
 @(private) g_renderer: Renderer
@@ -54,6 +55,7 @@ render_init :: proc(screen_w, screen_h: i32) -> bool {
 render_resize :: proc(w, h: i32){
     gl.Viewport(0, 0, w, h)
     g_renderer.proj = _ortho(0, f32(w), f32(h), 0, -1, 1)
+    g_renderer.screen_h = h
 }
 
 render_begin_frame :: proc() {
@@ -235,6 +237,12 @@ _flush :: proc() {
         &g_renderer.vertices[0],
     )
     gl.DrawElements(gl.TRIANGLES, i32(g_renderer.index_count), gl.UNSIGNED_INT, nil)
+}
+
+@(private)
+_render_flush_now :: proc() {
+	_flush()
+	_begin_batch()
 }
 
 

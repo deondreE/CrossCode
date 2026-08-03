@@ -31,15 +31,14 @@ update :: proc(app: ^engine.Application) {
 		if (engine.checkbox(&my_font, "Test", &test_val)) {
 			fmt.println("")
 		}
-		engine.label(&my_font, fmt.tprintf("%.2f", slider_val))
 
-		if (engine.slider(&slider_val, 0, 100)) {
+		if (engine.slider(fmt.tprintf("%.2f"), &slider_val, 0, 100)) {
 			fmt.println(slider_val)
 		}
+		engine.label(&my_font, "Test this string that should be too long overall this is a super long lopng long long string", 200);
 	engine.end_group()
 
 	engine.end_layout()
-
 }
 
 main :: proc() {

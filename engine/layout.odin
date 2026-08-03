@@ -129,4 +129,5 @@ _ui_begin_frame :: proc() {
 	free_all(_g_ui.allocator)
 	_g_ui.stack_index = 0
 	_g_current_layout = nil
+	_g_hot_id = 0
 }

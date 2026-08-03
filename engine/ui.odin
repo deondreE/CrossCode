@@ -3,15 +3,20 @@ import "core:math/linalg"
 import "core:c"
 import "core:strings"
 import "vendor:glfw"
+import "base:runtime"
 
 InputState :: struct {
 	mouse_pos: linalg.Vector2f32,
 	mouse_down: bool,
-	mouse_clicked: bool
+	mouse_clicked: bool,
+	click_consumed: bool,
+	scroll_data: f32
 }
 
 @(private)
 _g_input: InputState
+
+
 
 Color :: struct {
 	r, g, b, a: f32
@@ -24,7 +29,6 @@ Widget :: struct {
 	children: [dynamic]^Widget,
 }
 
-
 @(private)
 _update_input :: proc(window: ^Window) {
 	x, y := glfw.GetCursorPos(window.handle)
@@ -33,6 +37,16 @@ _update_input :: proc(window: ^Window) {
 	is_down := glfw.GetMouseButton(window.handle, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS;
 	_g_input.mouse_clicked = is_down && !_g_input.mouse_down
 	_g_input.mouse_down = is_down
+	_g_input.click_consumed = false
+}
+
+@(private)
+_try_click_consume :: proc() -> bool {
+	if _g_input.mouse_clicked && !_g_input.click_consumed {
+		_g_input.click_consumed = true
+		return true
+	}
+	return false
 }
 
 // Returns true if the point is inside the rectangle defined by rect_pos and rect_size.
@@ -88,7 +102,7 @@ checkbox :: proc(font: ^Font, label_text: string, checked: ^bool) -> bool {
 	is_hovered := point_is_rect(_g_input.mouse_pos, pos, size)
 	toggled := false
 
-	if is_hovered && _g_input.mouse_clicked {
+	if is_hovered && _try_click_consume() {
 		checked^ = !checked^
 		toggled = true
 	}
@@ -127,7 +141,7 @@ button :: proc(font: ^Font, label: string, size: linalg.Vector2f32 = {100, 40}, 
 	append_widget(_g_current_layout, w)
 
 	is_hovered := point_is_rect(_g_input.mouse_pos, w.position, w.size)
-	is_clicked := is_hovered && _g_input.mouse_clicked
+	is_clicked := is_hovered && _try_click_consume()
 
 	l_color := bg_color
 	if is_hovered {
@@ -147,30 +161,40 @@ button :: proc(font: ^Font, label: string, size: linalg.Vector2f32 = {100, 40}, 
 	return is_clicked
 }
 
-slider :: proc(val: ^f32, min, max: f32, width: f32 = 200) -> bool {
+slider :: proc(label: string = "",val: ^f32, min, max: f32, width: f32 = 200) -> bool {
 	if _g_current_layout == nil do return false
 
+	id := widget_id(label)
 	size: linalg.Vector2f32 = {width, 20}
 	pos := _g_current_layout.cursor
 
 	is_hovered := point_is_rect(_g_input.mouse_pos, pos, size)
 	changed := false
 
-	// Handle dragging
-	if _g_input.mouse_down && is_hovered {
-		relative_x := _g_input.mouse_pos.x - pos.x
-		t := clamp(relative_x / width, 0.0, 1.0)
-		val^ = min + (max - min) * t
-		changed =  true
+	if is_hovered do set_hot(id)
+
+	if is_hovered && _try_click_consume() {
+		set_active(id)
 	}
 
-	// draw background track
+	if is_active(id) {
+		if _g_input.mouse_down {
+			relative_x := _g_input.mouse_pos.x - pos.x
+			t := clamp(relative_x / width, 0.0, 1.0)
+			val^ = min + (max - min) * t
+			changed = true
+		} else {
+			clear_active()
+		}
+	}
+
 	draw_rect(pos, size, {0.15, 0.15, 0.15, 1.0})
 
-	// Draw Handle
 	handle_x := (val^ - min) / (max - min) * width
 	handle_size: linalg.Vector2f32 = {10, 20}
-	draw_rect(pos + {handle_x - 5, 0}, handle_size, {0.4, 0.6, 0.9, 1.0})
+	handle_col := is_active(id) ? [4]f32{0.5, 0.7, 1.0, 1.0} : [4]f32{0.4, 0.6, 0.9, 1.0}
+	// @Todo: Global font
+	draw_rect(pos + {handle_x - 5, 0}, handle_size, handle_col)
 
 	_advance_layout(size)
 
@@ -198,9 +222,11 @@ begin_group :: proc(label: string, size: linalg.Vector2f32, gap: f32 = 20.0, pad
 	draw_rect(pos, outer_size, {0.15, 0.15, 0.18, 1.0})
 	draw_rect(pos, {outer_size.x, 2}, {0.3, 0.3, 0.35, 1.0})
 
+	push_scissor(pos, outer_size)
 	start_layout(.Vertical, size.x, size.y, start_pos = pos + padding, spacing = gap, padding = padding)
 }
 
 end_group :: proc() {
 	end_layout()
+	pop_scissor()
 }

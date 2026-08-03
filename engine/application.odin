@@ -18,6 +18,8 @@ Application :: struct {
     window: Window,
     running: bool
 }
+@(private)
+_g_window_height := 720
 
 create :: proc (spec: ApplicationSpec) -> (Application, bool) {
     app: Application
@@ -37,6 +39,11 @@ create :: proc (spec: ApplicationSpec) -> (Application, bool) {
   		context = runtime.default_context() // needed since this is a C callback
         render_resize(width, height)
     })
+
+   	glfw.SetScrollCallback(win.handle, proc "c" (handle: glfw.WindowHandle, xoff, yoff: f64) {
+		context = runtime.default_context()
+		_g_input.scroll_data = f32(yoff)
+	})
 
     _ui_init()
 
