@@ -1,6 +1,10 @@
 package engine
 
+import "vendor:curl"
+import "core:math/linalg"
+// @Configurable
 MAX_SCROLL_GROUPS :: 32
+SCROLLBAR_WIDTH :: 10.0
 
 ScrollGroupState :: struct {
 	id: u64,

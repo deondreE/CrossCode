@@ -36,6 +36,10 @@ Layout :: struct {
 	origin: linalg.Vector2f32,
 	cursor: linalg.Vector2f32,
 	active: bool,
+	scroll_id: u64,
+	scroll_visible_h: f32,
+	scroll_track_pos: linalg.Vector2f32,
+	scroll_track_size: linalg.Vector2f32
 }
 
 LayoutStack :: struct {

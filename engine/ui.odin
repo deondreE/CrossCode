@@ -1,5 +1,6 @@
 package engine
 import "core:math/linalg"
+import "core:text/regex"
 import "core:c"
 import "core:strings"
 import "vendor:glfw"
@@ -15,8 +16,6 @@ InputState :: struct {
 
 @(private)
 _g_input: InputState
-
-
 
 Color :: struct {
 	r, g, b, a: f32
@@ -213,20 +212,89 @@ spacer :: proc(amount: f32) {
 // Group widget: Starts a new layout and draws a background panel.
 begin_group :: proc(label: string, size: linalg.Vector2f32, gap: f32 = 20.0, padding: f32 = 10.0) {
 	pos := _g_current_layout.cursor
+	id := widget_id(label)
+	state := _get_scroll_state(id)
 
 	outer_size := size + padding * 2
 	if padding * 2 > size.x || padding * 2 > size.y {
 		outer_size = size + padding
 	}
 
+	needs_scrollbar := state.content_h_prev > size.y
+	cotent_w := size.x - (needs_scrollbar ? SCROLLBAR_WIDTH + 4 : 0)
+
 	draw_rect(pos, outer_size, {0.15, 0.15, 0.18, 1.0})
 	draw_rect(pos, {outer_size.x, 2}, {0.3, 0.3, 0.35, 1.0})
 
+	is_hovered := point_is_rect(_g_input.mouse_pos, pos, outer_size)
+	if is_hovered && _g_input.scroll_data != 0 {
+		state.offset_y -= _g_input.scroll_data * 40.0 // Scroll speed
+	}
+
+	max_offset := max(f32(0), state.content_h_prev - size.y)
+	state.offset_y = clamp(state.offset_y, 0, max_offset)
+
 	push_scissor(pos, outer_size)
-	start_layout(.Vertical, size.x, size.y, start_pos = pos + padding, spacing = gap, padding = padding)
+
+	content_origin := pos + padding - {0, state.offset_y}
+	start_layout(.Vertical, size.x, size.y, start_pos = content_origin, spacing = gap, padding = padding)
+
+	_g_current_layout.scroll_id = id
+	_g_current_layout.scroll_visible_h = size.y
+	_g_current_layout.scroll_track_pos = pos
+	_g_current_layout.scroll_track_size = outer_size
 }
 
 end_group :: proc() {
+	l := _g_current_layout
+	if l == nil {
+		end_layout()
+		return
+	}
+
+	content_h := l.cursor.y - l.origin.y
+	state := _get_scroll_state(l.scroll_id)
+	state.content_h_prev = content_h
+
+	visible_h := l.scroll_visible_h
+	track_pos := l.scroll_track_pos
+	track_size := l.scroll_track_size
+
 	end_layout()
 	pop_scissor()
+
+	// Scrollbar OUTSIDE the clipped region, after pop_scissor
+	if content_h > visible_h {
+		track_x := track_pos.x + track_size.x - SCROLLBAR_WIDTH - 2
+		track_y := track_pos.y + 2
+		track_h := track_pos.y - 4
+
+		draw_rect({track_x, track_y}, {SCROLLBAR_WIDTH, track_h}, {0.1, 0.1, 0.12, 1.0})
+
+		handle_h := max(f32(0), track_h * (visible_h / content_h))
+		scroll_t := state.offset_y / max(f32(1), content_h - visible_h)
+		handle_y := track_h + (track_h - handle_h) * scroll_t
+
+		handle_pos := linalg.Vector2f32{ track_x, handle_y }
+		handle_size := linalg.Vector2f32{SCROLLBAR_WIDTH, handle_h}
+
+		scrollbar_id := state.id ~ 0x5CB0BA5
+
+		is_hovered := point_is_rect(_g_input.mouse_pos, handle_pos, handle_size)
+		if is_hovered do set_hot(scrollbar_id)
+		if is_hovered && _try_click_consume() do set_active(scrollbar_id)
+
+		if  is_active(scrollbar_id) {
+			if _g_input.mouse_down {
+				rel_y := _g_input.mouse_pos.y - track_y
+				t := clamp(rel_y / max(f32(1), track_h - handle_h), 0.0, 1.0)
+				state.offset_y = t * max(f32(0), content_h - visible_h)
+			} else {
+				clear_active()
+			}
+		}
+
+		handle_col := is_active(scrollbar_id) ? [4]f32{0.6, 0.75, 1.0, 1.0} : [4]f32{0.4, 0.6, 0.9, 1.0}
+		draw_rect(handle_pos, handle_size, handle_col)
+	}
 }
