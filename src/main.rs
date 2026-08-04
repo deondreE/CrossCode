@@ -3,7 +3,7 @@ mod font;
 mod layout;
 mod renderer;
 
-use crate::layout::{ButtonColors, LayoutDirection, SliderColors, UiContext};
+use crate::layout::{ButtonColors, LayoutDirection, SliderColors, TextInputColors, UiContext};
 use application::Application;
 
 fn main() {
@@ -12,6 +12,7 @@ fn main() {
 
     let mut volume: f32 = 0.5;
     let mut toggle: bool = false;
+    let mut name = String::new();
 
     let mut app = Application::new(
         "Engine Test".into(),
@@ -27,6 +28,20 @@ fn main() {
                 println!("cliked!");
                 toggle = !toggle;
             }
+
+            ui.text_input(
+                20,
+                [200.0, 24.0],
+                &mut name,
+                font,
+                TextInputColors::default(),
+            );
+            ui.fmt_label(
+                21,
+                font,
+                [1.0, 1.0, 1.0, 1.0],
+                format_args!("Hello, {}", name),
+            );
 
             if toggle {
                 ui.push_layout(LayoutDirection::Vertical);

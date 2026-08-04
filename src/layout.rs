@@ -1,3 +1,5 @@
+use glfw::Key::{self, W};
+
 use crate::font::{Font, draw_text, measure_text};
 use crate::renderer::Renderer;
 
@@ -39,6 +41,32 @@ pub struct MouseState {
     pub down: bool,
     pub pressed: bool,
     pub released: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct KeyboardState {
+    pub chars: Vec<char>,
+    pub backspace: bool,
+    pub enter: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TextInputColors {
+    pub idle: [f32; 4],
+    pub focused: [f32; 4],
+    pub text: [f32; 4],
+    pub cursor: [f32; 4],
+}
+
+impl Default for TextInputColors {
+    fn default() -> Self {
+        Self {
+            idle: [0.18, 0.18, 0.2, 1.0],
+            focused: [0.22, 0.22, 0.26, 1.0],
+            text: [1.0, 1.0, 1.0, 1.0],
+            cursor: [1.0, 1.0, 1.0, 1.0],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -94,8 +122,11 @@ pub struct UiContext {
     pub text_buffer: String,
 
     mouse: MouseState,
+    keyboard: KeyboardState,
     hot_id: Option<u64>,
     active_id: Option<u64>,
+    focus_id: Option<u64>,
+    time: f32,
 }
 
 impl UiContext {
@@ -107,8 +138,11 @@ impl UiContext {
             gap,
             text_buffer: String::with_capacity(4096),
             mouse: MouseState::default(),
+            keyboard: KeyboardState::default(),
             hot_id: None,
             active_id: None,
+            focus_id: None,
+            time: 0.0,
         }
     }
 
@@ -117,12 +151,23 @@ impl UiContext {
         self.mouse = mouse;
     }
 
+    pub fn set_keyboard(&mut self, keyboard: KeyboardState) {
+        self.keyboard = keyboard;
+    }
+
+    pub fn advance_time(&mut self, dt: f32) {
+        self.time += dt;
+    }
+
     /// Entry point for the frame. Sets the root layout area.
     pub fn begin(&mut self, screen_pos: [f32; 2], dir: LayoutDirection) {
         self.widgets.clear();
         self.text_buffer.clear();
         self.layout_stack.clear();
         self.hot_id = None;
+        if self.mouse.pressed {
+            self.focus_id = None;
+        }
         self.layout_stack.push(LayoutState {
             origin: screen_pos,
             cursor: [self.padding, self.padding],
@@ -358,6 +403,92 @@ impl UiContext {
                 color: handle_color,
             },
         });
+
+        self.advance_parent(size);
+        changed
+    }
+
+    /// A single-line text input. Appends typed characters to `buffer` while
+    /// focused, backspace removes the last character. Returns true if the
+    /// buffer changed this frame. Click to focus, click elsewhere to unfocus.
+    pub fn text_input(
+        &mut self,
+        id: u64,
+        size: [f32; 2],
+        buffer: &mut String,
+        font: &Font,
+        colors: TextInputColors,
+    ) -> bool {
+        let pos = self.current_pos();
+        let hovered = point_in_rect(self.mouse.pos, pos, size);
+
+        if self.mouse.pressed && hovered {
+            self.focus_id = Some(id);
+        }
+        let is_focused = self.focus_id == Some(id);
+
+        let mut changed = false;
+        if is_focused {
+            for &c in &self.keyboard.chars {
+                // filter control characters (backspace/enter etc. attrive here too)
+                // on some platforms/backends, so keep only printable input
+                if !c.is_control() {
+                    buffer.push(c);
+                    changed = true;
+                }
+            }
+            if self.keyboard.backspace {
+                if buffer.pop().is_some() {
+                    changed = true;
+                }
+            }
+        }
+
+        let box_color = if is_focused {
+            colors.focused
+        } else {
+            colors.idle
+        };
+        self.widgets.push(Widget {
+            id,
+            size,
+            pos,
+            kind: WidgetKind::Rect { color: box_color },
+        });
+
+        let inner_pad = 6.0;
+        let text_pos = [
+            pos[0] + inner_pad,
+            pos[1] + (size[1] - font.pixel_height) * 0.5,
+        ];
+        let text_size = measure_text(font, buffer);
+
+        let start = self.text_buffer.len();
+        self.text_buffer.push_str(buffer);
+        let end = self.text_buffer.len();
+
+        self.widgets.push(Widget {
+            id,
+            size: text_size,
+            pos: text_pos,
+            kind: WidgetKind::Text {
+                range: start..end,
+                color: colors.text,
+            },
+        });
+
+        // blinking cursor, only while focused
+        if is_focused && (self.time % 1.0) < 0.5 {
+            let cursor_x = text_pos[0] + text_size[0] + 1.0;
+            self.widgets.push(Widget {
+                id,
+                size: [2.0, font.pixel_height],
+                pos: [cursor_x, text_pos[1]],
+                kind: WidgetKind::Rect {
+                    color: colors.cursor,
+                },
+            });
+        }
 
         self.advance_parent(size);
         changed

@@ -1,8 +1,8 @@
 use std::time::Instant;
 
 use crate::font::Font;
-use crate::layout::MouseState;
 use crate::layout::UiContext;
+use crate::layout::{KeyboardState, MouseState};
 use crate::renderer::Renderer;
 use glfw::{Action, Context, Key};
 
@@ -53,6 +53,10 @@ where
         let mut mouse_pressed = false;
         let mut mouse_released = false;
 
+        let mut typed_char: Vec<char> = Vec::new();
+        let mut backspace_pressed = false;
+        let mut enter_pressed = false;
+
         glfw.window_hint(glfw::WindowHint::ContextVersion(4, 6));
         glfw.window_hint(glfw::WindowHint::OpenGlForwardCompat(true));
 
@@ -65,6 +69,8 @@ where
         window.set_framebuffer_size_polling(true);
         window.set_cursor_pos_polling(true);
         window.set_mouse_button_polling(true);
+        window.set_char_polling(true);
+        window.set_key_polling(true);
 
         glfw.set_swap_interval(glfw::SwapInterval::Sync(1));
         gl::load_with(|s| window.get_proc_address(s).unwrap() as *const _);
@@ -89,6 +95,15 @@ where
                     }
                     glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
                         window.set_should_close(true);
+                    }
+                    glfw::WindowEvent::Char(c) => {
+                        typed_char.push(c);
+                    }
+                    glfw::WindowEvent::Key(Key::Backspace, _, Action::Press, _) => {
+                        backspace_pressed = true;
+                    }
+                    glfw::WindowEvent::Key(Key::Enter, _, Action::Press, _) => {
+                        enter_pressed = true;
                     }
                     glfw::WindowEvent::CursorPos(x, y) => {
                         mouse_pos = [x as f32, y as f32];
@@ -129,6 +144,12 @@ where
                 pressed: mouse_pressed,
                 released: mouse_released,
             });
+            current_ui.set_keyboard(KeyboardState {
+                chars: std::mem::take(&mut typed_char),
+                backspace: backspace_pressed,
+                enter: enter_pressed,
+            });
+            current_ui.advance_time(delta_time);
 
             current_ui = (self.update)(&mut renderer, &font, current_fps, current_ui);
 
@@ -137,6 +158,8 @@ where
 
             mouse_pressed = false;
             mouse_released = false;
+            backspace_pressed = false;
+            enter_pressed = false;
         }
         self.ui = current_ui;
     }
