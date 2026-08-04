@@ -8,3 +8,11 @@ fontdue = "0.9.4"
 gl = "0.14.0"
 glfw = "0.62.0"
 memoffset = "0.9.1"
+
+# Make release build optimized for size
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

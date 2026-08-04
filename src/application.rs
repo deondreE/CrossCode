@@ -1,24 +1,33 @@
 use std::time::Instant;
 
 use crate::font::Font;
+use crate::layout::UiContext;
 use crate::renderer::Renderer;
 use glfw::{Action, Context, Key};
 
-pub struct Application {
+pub struct Application<F>
+where
+    F: FnMut(&mut Renderer, &Font, i32, UiContext) -> UiContext,
+{
     pub name: String,
     pub window_w: i32,
     pub window_h: i32,
-    pub update: fn(&mut Renderer, &Font, i32),
+    pub update: F,
     pub init: fn(),
+    pub ui: UiContext,
 }
 
-impl Application {
+impl<F> Application<F>
+where
+    F: FnMut(&mut Renderer, &Font, i32, UiContext) -> UiContext,
+{
     pub fn new(
         name: String,
         window_w: i32,
         window_h: i32,
-        update: fn(&mut Renderer, &Font, i32),
+        update: F,
         init: fn(),
+        ui: UiContext,
     ) -> Self {
         Application {
             name,
@@ -26,6 +35,7 @@ impl Application {
             window_h,
             update,
             init,
+            ui,
         }
     }
 
@@ -48,13 +58,17 @@ impl Application {
         window.set_key_polling(true);
         window.set_framebuffer_size_polling(true);
 
+        glfw.set_swap_interval(glfw::SwapInterval::Sync(1));
         gl::load_with(|s| window.get_proc_address(s).unwrap() as *const _);
+
         let mut renderer = Renderer::new(800, 600);
 
         let font_path = "assets/JetBrainsMono-Medium.ttf";
         let font = Font::load(font_path, 16.0).expect("Failed to load font");
 
         (self.init)();
+
+        let mut current_ui = std::mem::replace(&mut self.ui, UiContext::new(0.0, 0.0));
 
         while !window.should_close() {
             glfw.poll_events();
@@ -86,11 +100,11 @@ impl Application {
 
             renderer.begin_frame();
 
-            (self.update)(&mut renderer, &font, current_fps);
+            current_ui = (self.update)(&mut renderer, &font, current_fps, current_ui);
 
             renderer.end_frame();
-            glfw.set_swap_interval(glfw::SwapInterval::None);
             window.swap_buffers();
         }
+        self.ui = current_ui;
     }
 }
