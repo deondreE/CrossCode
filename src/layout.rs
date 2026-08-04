@@ -10,6 +10,9 @@ pub enum LayoutDirection {
     Vertical,
 }
 
+// What if the user forgets to pop layout ?
+// Styling Pass ?
+
 pub enum WidgetKind {
     Rect {
         color: [f32; 4],
@@ -17,6 +20,11 @@ pub enum WidgetKind {
     Text {
         range: std::ops::Range<usize>,
         color: [f32; 4],
+    },
+    TextArea {
+        range: std::ops::Range<usize>,
+        color: [f32; 4],
+        cursor_idx: usize,
     },
     ClipPush,
     ClipPop,
@@ -585,6 +593,118 @@ impl UiContext {
         changed
     }
 
+    pub fn text_area(
+        &mut self,
+        id: impl Hash,
+        size: [f32; 2],
+        buffer: &mut String, // Todo Change,
+        font: &Font,
+        colors: TextInputColors,
+    ) -> bool {
+        let id = self.resolve_id(id);
+        let pos = self.current_pos();
+        let hovered = point_in_rect(self.mouse.pos, pos, size);
+
+        if self.mouse.pressed && hovered {
+            self.focus_id = Some(id);
+        }
+        let is_focused = self.focus_id == Some(id);
+
+        let mut changed = false;
+        if is_focused {
+            for &c in &self.keyboard.chars {
+                if !c.is_control() || c == '\n' || c == '\r' {
+                    buffer.push(c);
+                    changed = true;
+                }
+            }
+            if self.keyboard.enter {
+                buffer.push('\n');
+                changed = true;
+            }
+            if self.keyboard.backspace {
+                if buffer.pop().is_some() {
+                    changed = true;
+                }
+            }
+        }
+
+        // Draw Background
+        self.widgets.push(Widget {
+            id,
+            size,
+            pos,
+            kind: WidgetKind::Rect {
+                color: if is_focused {
+                    colors.focused
+                } else {
+                    colors.idle
+                },
+            },
+        });
+
+        // Clipping for the text area
+        self.widgets.push(Widget {
+            id,
+            pos: [pos[0] + 2.0, pos[1] + 2.0],
+            size: [size[0] - 4.0, size[1] - 4.0],
+            kind: WidgetKind::ClipPush,
+        });
+
+        let start = self.text_buffer.len();
+        self.text_buffer.push_str(buffer);
+        let end = self.text_buffer.len();
+
+        // Calculate multi-line cursor position
+        // This is a naive implementation: finding the last line's width
+        let lines: Vec<&str> = buffer.split('\n').collect();
+        let last_line = lines.last().unwrap_or(&"");
+        let last_line_size = measure_text(font, last_line);
+        let line_height = font.pixel_height * 1.2; // 1.2 for line spacing
+        let total_height = lines.len() as f32 * line_height;
+
+        self.widgets.push(Widget {
+            id,
+            size: [size[0], total_height],
+            pos: [pos[0] + 5.0, pos[1] + 5.0],
+            kind: WidgetKind::Text {
+                range: start..end,
+                color: colors.text,
+            },
+        });
+
+        // Multi-line cursor
+        if is_focused && (self.time % 1.0) < 0.5 {
+            let cursor_x = pos[0] + 5.0 + last_line_size[0];
+            let cursor_y = pos[1] + 5.0 + ((lines.len() as f32 - 1.0) * line_height);
+            self.widgets.push(Widget {
+                id,
+                size: [2.0, font.pixel_height],
+                pos: [cursor_x, cursor_y],
+                kind: WidgetKind::Rect {
+                    color: colors.cursor,
+                },
+            });
+        }
+
+        self.widgets.push(Widget {
+            id,
+            pos: [0.0, 0.0],
+            size: [0.0, 0.0],
+            kind: WidgetKind::ClipPop,
+        });
+
+        self.advance_parent(size);
+        changed
+    }
+
+    /// Closure driven architecture.
+    pub fn div<F: FnOnce(&mut Self)>(&mut self, dir: LayoutDirection, f: F) {
+        self.push_layout(dir);
+        f(self);
+        self.pop_layout();
+    }
+
     pub fn overlay_hit(&self, pos: [f32; 2]) -> bool {
         self.overlay_widgets
             .iter()
@@ -623,6 +743,56 @@ impl UiContext {
                 }
                 WidgetKind::ClipPush => renderer.push_scissor(w.pos, w.size),
                 WidgetKind::ClipPop => renderer.pop_scissor(),
+                WidgetKind::TextArea {
+                    range,
+                    color,
+                    cursor_idx,
+                } => {
+                    let full_text = &self.text_buffer[range.clone()];
+                    let line_height = font.pixel_height * 1.2;
+                    let mut current_y = w.pos[1];
+                    let mut char_count: usize = 0;
+                    let mut cursor_pos = None;
+
+                    // Split by lines to handle vertical layout
+                    for line in full_text.split_inclusive('\n') {
+                        // Check if the cursor is within this specific line
+                        let line_len = line.chars().count();
+                        if cursor_pos.is_none()
+                            && *cursor_idx >= char_count
+                            && *cursor_idx <= char_count + line_len
+                        {
+                            // Calculate local X offset for the cursor within this line
+                            let sub_str: String =
+                                line.chars().take(*cursor_idx - char_count).collect();
+                            let sub_size = measure_text(font, &sub_str);
+                            cursor_pos = Some([w.pos[0] + sub_size[0], current_y]);
+                        }
+
+                        // Draw the line of text
+                        draw_text(
+                            renderer,
+                            font,
+                            line.trim_end_matches(['\n', '\r']),
+                            [w.pos[0], current_y],
+                            *color,
+                        );
+
+                        current_y += line_height;
+                        char_count += line_len;
+                    }
+
+                    // Draw the cursor if the widget is focused (using the time-based blink from your context)
+                    if let Some(c_pos) = cursor_pos {
+                        if (self.time % 1.0) < 0.5 {
+                            renderer.draw_rect(
+                                c_pos,
+                                [2.0, font.pixel_height],
+                                [1.0, 1.0, 1.0, 1.0], // White cursor
+                            );
+                        }
+                    }
+                }
             }
         }
     }

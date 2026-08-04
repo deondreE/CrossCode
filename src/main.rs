@@ -2,114 +2,107 @@ mod application;
 mod font;
 mod layout;
 mod renderer;
-use crate::layout::{ButtonColors, LayoutDirection, SliderColors, TextInputColors, UiContext};
+use crate::layout::{ButtonColors, LayoutDirection, TextInputColors, UiContext};
 use application::Application;
+
 fn main() {
-    // Initialize the UI Context with padding and gap settings
-    let ui_instance = UiContext::new(10.0, 5.0);
-    let mut volume: f32 = 0.5;
-    let mut toggle: bool = false;
-    let mut name = String::new();
+    let ui_instance = UiContext::new(0.0, 0.0); // Editor usually needs zero root padding
+
+    // Editor State
+    let mut file_content =
+        String::from("// Welcome to Test\nfn main() {\n    println!(\"Hello Wayland!\");\n}");
+    let mut filename = String::from("main.rs");
+    let mut sidebar_width: f32 = 180.0;
+
     let mut app = Application::new(
-        "Engine Test".into(),
-        800,
-        600,
-        |renderer, font, fps, mut ui| {
+        "T3 Editor".into(),
+        1024,
+        768,
+        |renderer, font, _fps, mut ui| {
+            let [win_w, win_h] = [800.0, 600.0]; // Should ideally come from app state
+
             ui.begin([0.0, 0.0], LayoutDirection::Vertical);
-            ui.fmt_label(
-                "fps_label",
-                font,
-                [1.0, 1.0, 0.0, 1.0],
-                format_args!("FPS: {}", fps),
-            );
-            ui.push_layout(LayoutDirection::Horizontal);
-            if ui.button(
-                "toggle_button",
-                [100.0, 30.0],
-                "Click me",
-                font,
-                ButtonColors::default(),
-            ) {
-                println!("cliked!");
-                toggle = !toggle;
-            }
-            ui.text_input(
-                "name_input",
-                [200.0, 24.0],
-                &mut name,
-                font,
-                TextInputColors::default(),
-            );
-            ui.fmt_label(
-                "hello_label",
-                font,
-                [1.0, 1.0, 1.0, 1.0],
-                format_args!("Hello, {}", name),
-            );
-            if toggle {
-                ui.push_layout(LayoutDirection::Vertical);
-                ui.label("row1_label", "Bustton Clicked!", font, [1.0, 1.0, 1.0, 1.0]);
-                ui.push_layout(LayoutDirection::Horizontal);
-                if ui.button(
-                    "btn_1",
-                    [100.0, 30.0],
-                    "Click me",
-                    font,
-                    ButtonColors::default(),
-                ) {}
 
-                if ui.button(
-                    "btn2",
-                    [100.0, 30.0],
-                    "Click me",
+            // 1. Top Toolbar / Header
+            ui.div(LayoutDirection::Horizontal, |ui| {
+                ui.rect("header_bg", [win_w, 35.0], [0.12, 0.12, 0.14, 1.0]);
+                // We'd use overlay_label here to draw over the rect if manual positioning
+                ui.label(
+                    "file_title",
+                    &format!(" Editing: {}", filename),
                     font,
-                    ButtonColors::default(),
-                ) {}
+                    [0.8, 0.8, 0.8, 1.0],
+                );
+            });
 
-                ui.pop_layout();
-                ui.label("row2_label", "Bustton Clicked!", font, [1.0, 1.0, 1.0, 1.0]);
-                ui.label("row3_label", "Bustton Clicked!", font, [1.0, 1.0, 1.0, 1.0]);
-                ui.push_layout(LayoutDirection::Horizontal);
-                if ui.button(
-                    "btn3",
-                    [100.0, 30.0],
-                    "Click me",
+            // 2. Main Content Area (Sidebar + Editor)
+            ui.div(LayoutDirection::Horizontal, |ui| {
+                // Sidebar
+                ui.div(LayoutDirection::Vertical, |ui| {
+                    ui.rect(
+                        "sidebar_bg",
+                        [sidebar_width, win_h - 60.0],
+                        [0.1, 0.1, 0.11, 1.0],
+                    );
+                    ui.label("proj_label", "  PROJECT", font, [0.4, 0.4, 0.4, 1.0]);
+                    ui.button(
+                        "file_1",
+                        [sidebar_width, 25.0],
+                        "  main.rs",
+                        font,
+                        ButtonColors::default(),
+                    );
+                    ui.button(
+                        "file_2",
+                        [sidebar_width, 25.0],
+                        "  layout.rs",
+                        font,
+                        ButtonColors::default(),
+                    );
+                    ui.button(
+                        "file_3",
+                        [sidebar_width, 25.0],
+                        "  Cargo.toml",
+                        font,
+                        ButtonColors::default(),
+                    );
+                });
+
+                // Editor TextArea
+                let editor_size = [win_w - sidebar_width, win_h - 60.0];
+                ui.text_area(
+                    "main_editor",
+                    editor_size,
+                    &mut file_content,
                     font,
-                    ButtonColors::default(),
-                ) {}
-                if ui.button(
-                    "btn4",
-                    [100.0, 30.0],
-                    "Click me",
+                    TextInputColors {
+                        idle: [0.08, 0.08, 0.09, 1.0],
+                        focused: [0.08, 0.08, 0.09, 1.0],
+                        text: [0.9, 0.9, 0.8, 1.0],
+                        cursor: [0.4, 0.6, 1.0, 1.0],
+                    },
+                );
+            });
+
+            // 3. Status Bar
+            ui.div(LayoutDirection::Horizontal, |ui| {
+                ui.rect("status_bg", [win_w, 25.0], [0.15, 0.35, 0.6, 1.0]);
+                ui.fmt_label(
+                    "status_text",
                     font,
-                    ButtonColors::default(),
-                ) {}
-                ui.pop_layout();
-                ui.label("row4_label", "Bustton Clicked!", font, [1.0, 1.0, 1.0, 1.0]);
-                ui.label("row5_label", "Bustton Clicked!", font, [1.0, 1.0, 1.0, 1.0]);
-                ui.label("row6_label", "Bustton Clicked!", font, [1.0, 1.0, 1.0, 1.0]);
-                ui.pop_layout();
-            }
-            ui.slider(
-                "volume_slider",
-                [200.0, 16.0],
-                &mut volume,
-                0.0,
-                1.0,
-                SliderColors::default(),
-            );
-            ui.fmt_label(
-                "volume_label",
-                font,
-                [1.0, 1.0, 1.0, 1.0],
-                format_args!("Volume {:.2}", volume),
-            );
-            ui.pop_layout();
+                    [1.0, 1.0, 1.0, 1.0],
+                    format_args!(
+                        " UTF-8  |  Rust  |  Lines: {}",
+                        file_content.lines().count()
+                    ),
+                );
+            });
+
             ui.draw(renderer, font);
             ui
         },
         || {
-            println!("Engine Initialized");
+            println!("Editor Core Initialized");
         },
         ui_instance,
     );
