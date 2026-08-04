@@ -33,6 +33,58 @@ struct LayoutState {
     max_content_size: [f32; 2],
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MouseState {
+    pub pos: [f32; 2],
+    pub down: bool,
+    pub pressed: bool,
+    pub released: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ButtonColors {
+    pub idle: [f32; 4],
+    pub hover: [f32; 4],
+    pub active: [f32; 4],
+    pub text: [f32; 4],
+}
+
+impl Default for ButtonColors {
+    fn default() -> Self {
+        Self {
+            idle: [0.25, 0.25, 0.28, 1.0],
+            hover: [0.35, 0.35, 0.4, 1.0],
+            active: [0.15, 0.55, 0.9, 1.0],
+            text: [1.0, 1.0, 1.0, 1.0],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SliderColors {
+    track: [f32; 4],
+    fill: [f32; 4],
+    handle: [f32; 4],
+    handle_hover: [f32; 4],
+    handle_actie: [f32; 4],
+}
+
+impl Default for SliderColors {
+    fn default() -> Self {
+        Self {
+            track: [0.2, 0.2, 0.22, 1.0],
+            fill: [0.15, 0.55, 0.9, 1.0],
+            handle: [0.8, 0.8, 0.85, 1.0],
+            handle_hover: [0.9, 0.9, 0.95, 1.0],
+            handle_actie: [1.0, 1.0, 1.0, 1.0],
+        }
+    }
+}
+
+fn point_in_rect(p: [f32; 2], pos: [f32; 2], size: [f32; 2]) -> bool {
+    p[0] >= pos[0] && p[0] < pos[0] + size[0] && p[1] >= pos[1] && p[1] < pos[1] + size[1]
+}
+
 /// Eqiuvilent to the html `body` tag.
 pub struct UiContext {
     pub widgets: Vec<Widget>,
@@ -40,17 +92,29 @@ pub struct UiContext {
     pub padding: f32,
     pub gap: f32,
     pub text_buffer: String,
+
+    mouse: MouseState,
+    hot_id: Option<u64>,
+    active_id: Option<u64>,
 }
 
 impl UiContext {
     pub fn new(padding: f32, gap: f32) -> Self {
         Self {
             widgets: Vec::with_capacity(1000),
-            layout_stack: Vec::with_capacity(16),
+            layout_stack: Vec::with_capacity(256),
             padding,
             gap,
             text_buffer: String::with_capacity(4096),
+            mouse: MouseState::default(),
+            hot_id: None,
+            active_id: None,
         }
+    }
+
+    /// Feed this frame's mouse input in before calling `begin()`
+    pub fn set_mouse(&mut self, mouse: MouseState) {
+        self.mouse = mouse;
     }
 
     /// Entry point for the frame. Sets the root layout area.
@@ -58,6 +122,7 @@ impl UiContext {
         self.widgets.clear();
         self.text_buffer.clear();
         self.layout_stack.clear();
+        self.hot_id = None;
         self.layout_stack.push(LayoutState {
             origin: screen_pos,
             cursor: [self.padding, self.padding],
@@ -147,6 +212,155 @@ impl UiContext {
             },
         });
         self.advance_parent(size);
+    }
+
+    /// A clickable button. Returns true on the frame the click completes
+    /// (mouse released while still hovering, having been pressed on this widget).
+    pub fn button(
+        &mut self,
+        id: u64,
+        size: [f32; 2],
+        label: &str,
+        font: &Font,
+        colors: ButtonColors,
+    ) -> bool {
+        let pos = self.current_pos();
+        let hovered = point_in_rect(self.mouse.pos, pos, size);
+
+        if hovered {
+            self.hot_id = Some(id);
+            if self.mouse.pressed {
+                self.active_id = Some(id);
+            }
+        }
+
+        let is_active = self.active_id == Some(id);
+        let clicked = is_active && hovered && self.mouse.released;
+
+        if self.mouse.released && self.active_id == Some(id) {
+            self.active_id = None;
+        }
+
+        // Turnary????
+        let color = if is_active && hovered {
+            colors.active
+        } else if hovered {
+            colors.hover
+        } else {
+            colors.idle
+        };
+
+        self.widgets.push(Widget {
+            id,
+            size,
+            pos,
+            kind: WidgetKind::Rect { color },
+        });
+
+        let text_size = measure_text(font, label);
+        let text_pos = [
+            pos[0] + (size[0] - text_size[0]) * 0.5,
+            pos[1] + (size[1] - text_size[1]) * 0.5,
+        ];
+
+        let start = self.text_buffer.len();
+        self.text_buffer.push_str(label);
+        let end = self.text_buffer.len();
+
+        self.widgets.push(Widget {
+            id,
+            size: text_size,
+            pos: text_pos,
+            kind: WidgetKind::Text {
+                range: start..end,
+                color,
+            },
+        });
+
+        self.advance_parent(size);
+        clicked
+    }
+
+    /// A horizontal slider. Mutates `value` in place while dragged and
+    /// returns true on any frame the value changed.
+    pub fn slider(
+        &mut self,
+        id: u64,
+        size: [f32; 2],
+        value: &mut f32,
+        min: f32,
+        max: f32,
+        colors: SliderColors,
+    ) -> bool {
+        let pos = self.current_pos();
+        let hovered = point_in_rect(self.mouse.pos, pos, size);
+
+        if hovered && self.mouse.pressed {
+            self.active_id = Some(id)
+        }
+        let is_active = self.active_id == Some(id);
+
+        let mut changed = false;
+        if is_active {
+            if self.mouse.down {
+                let rel_x = (self.mouse.pos[0] - pos[0]).clamp(0.0, size[0]);
+                let t = if size[0] > 0.0 { rel_x / size[0] } else { 0.0 };
+                let new_value = min + t * (max - min);
+                if new_value != *value {
+                    *value = new_value;
+                    changed = true;
+                }
+            }
+            if self.mouse.released {
+                self.active_id = None;
+            }
+        }
+
+        let t = if max > min {
+            ((*value - min) / (max - min)).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        // track
+        self.widgets.push(Widget {
+            id,
+            size,
+            pos,
+            kind: WidgetKind::Rect {
+                color: colors.track,
+            },
+        });
+
+        // fill
+        self.widgets.push(Widget {
+            id,
+            size: [size[0] * t, size[1]],
+            pos,
+            kind: WidgetKind::Rect { color: colors.fill },
+        });
+
+        let handle_w = 8.0_f32.min(size[0]);
+        let handle_pos = [pos[0] + t * (size[0] - handle_w), pos[1]];
+        let handle_color = if is_active {
+            colors.handle_actie
+        } else if hovered {
+            colors.handle_hover
+        } else {
+            colors.handle
+        };
+
+        self.widgets.push(Widget {
+            id,
+            size: [handle_w, size[1]],
+            pos: handle_pos,
+            kind: WidgetKind::Rect {
+                color: handle_color,
+            },
+        });
+
+        self.advance_parent(size);
+        changed
     }
 
     fn current_pos(&self) -> [f32; 2] {

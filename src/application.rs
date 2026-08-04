@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use crate::font::Font;
+use crate::layout::MouseState;
 use crate::layout::UiContext;
 use crate::renderer::Renderer;
 use glfw::{Action, Context, Key};
@@ -47,6 +48,11 @@ where
         let mut fps_timer = 0.0;
         let mut current_fps = 0;
 
+        let mut mouse_pos = [0.0f32, 0.0f32];
+        let mut mouse_down = false;
+        let mut mouse_pressed = false;
+        let mut mouse_released = false;
+
         glfw.window_hint(glfw::WindowHint::ContextVersion(4, 6));
         glfw.window_hint(glfw::WindowHint::OpenGlForwardCompat(true));
 
@@ -57,6 +63,8 @@ where
         window.make_current();
         window.set_key_polling(true);
         window.set_framebuffer_size_polling(true);
+        window.set_cursor_pos_polling(true);
+        window.set_mouse_button_polling(true);
 
         glfw.set_swap_interval(glfw::SwapInterval::Sync(1));
         gl::load_with(|s| window.get_proc_address(s).unwrap() as *const _);
@@ -82,6 +90,22 @@ where
                     glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
                         window.set_should_close(true);
                     }
+                    glfw::WindowEvent::CursorPos(x, y) => {
+                        mouse_pos = [x as f32, y as f32];
+                    }
+                    glfw::WindowEvent::MouseButton(glfw::MouseButton::Button1, action, _) => {
+                        match action {
+                            Action::Press => {
+                                mouse_pressed = true;
+                                mouse_down = true;
+                            }
+                            Action::Release => {
+                                mouse_released = true;
+                                mouse_down = false;
+                            }
+                            _ => {}
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -99,11 +123,20 @@ where
             }
 
             renderer.begin_frame();
+            current_ui.set_mouse(MouseState {
+                pos: mouse_pos,
+                down: mouse_down,
+                pressed: mouse_pressed,
+                released: mouse_released,
+            });
 
             current_ui = (self.update)(&mut renderer, &font, current_fps, current_ui);
 
             renderer.end_frame();
             window.swap_buffers();
+
+            mouse_pressed = false;
+            mouse_released = false;
         }
         self.ui = current_ui;
     }
