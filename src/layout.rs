@@ -2,6 +2,7 @@ use crate::font::{Font, draw_text, measure_text};
 use crate::renderer::Renderer;
 
 use std::fmt::{Arguments, Write};
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LayoutDirection {
@@ -94,7 +95,7 @@ pub struct SliderColors {
     fill: [f32; 4],
     handle: [f32; 4],
     handle_hover: [f32; 4],
-    handle_actie: [f32; 4],
+    handle_active: [f32; 4],
 }
 
 impl Default for SliderColors {
@@ -104,7 +105,7 @@ impl Default for SliderColors {
             fill: [0.15, 0.55, 0.9, 1.0],
             handle: [0.8, 0.8, 0.85, 1.0],
             handle_hover: [0.9, 0.9, 0.95, 1.0],
-            handle_actie: [1.0, 1.0, 1.0, 1.0],
+            handle_active: [1.0, 1.0, 1.0, 1.0],
         }
     }
 }
@@ -116,7 +117,10 @@ fn point_in_rect(p: [f32; 2], pos: [f32; 2], size: [f32; 2]) -> bool {
 /// Eqiuvilent to the html `body` tag.
 pub struct UiContext {
     pub widgets: Vec<Widget>,
+    ///  render on top. Intended for popups, dropdown lists, and tooltips
+    pub overlay_widgets: Vec<Widget>,
     layout_stack: Vec<LayoutState>,
+    id_stack: Vec<u64>,
     pub padding: f32,
     pub gap: f32,
     pub text_buffer: String,
@@ -133,7 +137,9 @@ impl UiContext {
     pub fn new(padding: f32, gap: f32) -> Self {
         Self {
             widgets: Vec::with_capacity(1000),
+            overlay_widgets: Vec::with_capacity(64),
             layout_stack: Vec::with_capacity(256),
+            id_stack: Vec::with_capacity(32),
             padding,
             gap,
             text_buffer: String::with_capacity(4096),
@@ -159,11 +165,37 @@ impl UiContext {
         self.time += dt;
     }
 
+    /// Pushes a seed onto the ID stack, scoping every widget ID created
+    /// until the matching `pop_id()`. Use this around loops or reusable
+    pub fn push_id<H: Hash>(&mut self, seed: H) {
+        let id = self.resolve_id(seed);
+        self.id_stack.push(id);
+    }
+
+    pub fn pop_id(&mut self) {
+        self.id_stack.pop();
+    }
+
+    /// Combines `seed` with whatever is currently on top of the ID stack to
+    /// produce a widget ID. Widget calls that take `id: impl Hash` funnel
+    /// through here, so passing a plain string label "just works" as long
+    /// as it's unique within its current `push_id` scope.
+    fn resolve_id<H: Hash>(&self, seed: H) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        if let Some(parent) = self.id_stack.last() {
+            parent.hash(&mut hasher);
+        }
+        seed.hash(&mut hasher);
+        hasher.finish()
+    }
+
     /// Entry point for the frame. Sets the root layout area.
     pub fn begin(&mut self, screen_pos: [f32; 2], dir: LayoutDirection) {
         self.widgets.clear();
+        self.overlay_widgets.clear();
         self.text_buffer.clear();
         self.layout_stack.clear();
+        self.id_stack.clear();
         self.hot_id = None;
         if self.mouse.pressed {
             self.focus_id = None;
@@ -207,7 +239,8 @@ impl UiContext {
         self.advance_parent(child_size);
     }
 
-    pub fn rect(&mut self, id: u64, size: [f32; 2], color: [f32; 4]) {
+    pub fn rect(&mut self, id: impl Hash, size: [f32; 2], color: [f32; 4]) {
+        let id = self.resolve_id(id);
         let pos = self.current_pos();
         self.widgets.push(Widget {
             id,
@@ -218,7 +251,19 @@ impl UiContext {
         self.advance_parent(size);
     }
 
-    pub fn label(&mut self, id: u64, text: &str, font: &Font, color: [f32; 4]) {
+    pub fn overlay_rect(&mut self, id: impl Hash, size: [f32; 2], color: [f32; 4]) {
+        let id = self.resolve_id(id);
+        let pos = self.current_pos();
+        self.overlay_widgets.push(Widget {
+            id,
+            size,
+            pos,
+            kind: WidgetKind::Rect { color },
+        });
+    }
+
+    pub fn label(&mut self, id: impl Hash, text: &str, font: &Font, color: [f32; 4]) {
+        let id = self.resolve_id(id);
         let size = measure_text(font, text);
         let pos = self.current_pos();
 
@@ -238,7 +283,28 @@ impl UiContext {
         self.advance_parent(size);
     }
 
-    pub fn fmt_label(&mut self, id: u64, font: &Font, color: [f32; 4], args: Arguments) {
+    pub fn overlay_label(&mut self, id: impl Hash, text: &str, font: &Font, color: [f32; 4]) {
+        let id = self.resolve_id(id);
+        let size = measure_text(font, text);
+        let pos = self.current_pos();
+
+        let start = self.text_buffer.len();
+        self.text_buffer.push_str(text);
+        let end = self.text_buffer.len();
+
+        self.overlay_widgets.push(Widget {
+            id,
+            size,
+            pos,
+            kind: WidgetKind::Text {
+                range: start..end,
+                color,
+            },
+        });
+    }
+
+    pub fn fmt_label(&mut self, id: impl Hash, font: &Font, color: [f32; 4], args: Arguments) {
+        let id = self.resolve_id(id);
         let start = self.text_buffer.len();
         let _ = self.text_buffer.write_fmt(args);
         let end = self.text_buffer.len();
@@ -261,14 +327,17 @@ impl UiContext {
 
     /// A clickable button. Returns true on the frame the click completes
     /// (mouse released while still hovering, having been pressed on this widget).
+    /// The `id` is taken the pushed onto the stack for active id pressed / released.
     pub fn button(
         &mut self,
-        id: u64,
+        id: impl Hash,
         size: [f32; 2],
         label: &str,
         font: &Font,
         colors: ButtonColors,
     ) -> bool {
+        self.push_id(&id);
+        let id = self.resolve_id(id);
         let pos = self.current_pos();
         let hovered = point_in_rect(self.mouse.pos, pos, size);
 
@@ -323,6 +392,7 @@ impl UiContext {
         });
 
         self.advance_parent(size);
+        self.pop_id();
         clicked
     }
 
@@ -330,13 +400,14 @@ impl UiContext {
     /// returns true on any frame the value changed.
     pub fn slider(
         &mut self,
-        id: u64,
+        id: impl Hash,
         size: [f32; 2],
         value: &mut f32,
         min: f32,
         max: f32,
         colors: SliderColors,
     ) -> bool {
+        let id = self.resolve_id(id);
         let pos = self.current_pos();
         let hovered = point_in_rect(self.mouse.pos, pos, size);
 
@@ -388,7 +459,7 @@ impl UiContext {
         let handle_w = 8.0_f32.min(size[0]);
         let handle_pos = [pos[0] + t * (size[0] - handle_w), pos[1]];
         let handle_color = if is_active {
-            colors.handle_actie
+            colors.handle_active
         } else if hovered {
             colors.handle_hover
         } else {
@@ -413,12 +484,14 @@ impl UiContext {
     /// buffer changed this frame. Click to focus, click elsewhere to unfocus.
     pub fn text_input(
         &mut self,
-        id: u64,
+        id: impl Hash,
         size: [f32; 2],
         buffer: &mut String,
         font: &Font,
         colors: TextInputColors,
     ) -> bool {
+        // @TODO: Keyboard movemen -> keys
+        let id = self.resolve_id(id);
         let pos = self.current_pos();
         let hovered = point_in_rect(self.mouse.pos, pos, size);
 
@@ -512,6 +585,12 @@ impl UiContext {
         changed
     }
 
+    pub fn overlay_hit(&self, pos: [f32; 2]) -> bool {
+        self.overlay_widgets
+            .iter()
+            .any(|w| point_in_rect(pos, w.pos, w.size))
+    }
+
     fn current_pos(&self) -> [f32; 2] {
         let state = self.layout_stack.last().unwrap();
         [
@@ -531,12 +610,11 @@ impl UiContext {
                 state.cursor[1] += size[1] + self.gap;
                 state.max_content_size[0] = state.max_content_size[0].max(size[0]);
             }
-            _ => {}
         }
     }
 
     pub fn draw(&self, renderer: &mut Renderer, font: &Font) {
-        for w in &self.widgets {
+        for w in self.widgets.iter().chain(self.overlay_widgets.iter()) {
             match &w.kind {
                 WidgetKind::Rect { color } => renderer.draw_rect(w.pos, w.size, *color),
                 WidgetKind::Text { range, color } => {
