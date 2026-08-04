@@ -80,6 +80,8 @@ pub struct Renderer {
     white_tex: GLuint, // 1x1 white for solid-color quads
     proj: [f32; 16],
     pub screen_h: i32,
+
+    scissor_stack: Vec<(i32, i32, i32, i32)>,
 }
 
 impl Renderer {
@@ -105,6 +107,7 @@ impl Renderer {
             white_tex,
             proj: [0.0; 16],
             screen_h,
+            scissor_stack: Vec::with_capacity(32),
         };
         r.resize(screen_w, screen_h);
         r
@@ -122,6 +125,10 @@ impl Renderer {
         unsafe {
             gl::ClearColor(0.1, 0.1, 0.12, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT);
+        }
+        self.scissor_stack.clear();
+        unsafe {
+            gl::Disable(gl::SCISSOR_TEST);
         }
         self.begin_batch();
     }
@@ -234,6 +241,61 @@ impl Renderer {
 
         self.vertex_count += 4;
         self.index_count += 6;
+    }
+
+    /// Pushes a new clip rect, intersected with whatever's currently on top of
+    /// the stack. `pos`/`size` are in the same top-left, y-down UI space as
+    /// everything else. Flushes the current batch first since scissor state
+    /// applies per-draw-call, not per-vertex.
+    pub fn push_scissor(&mut self, pos: [f32; 2], size: [f32; 2]) {
+        self.flush_now();
+
+        let x0 = pos[0];
+        let y0 = pos[1];
+        let x1 = pos[0] + size[0];
+        let y1 = pos[0] + size[1];
+
+        // UI Space is y-down from the top; GL scissor space is y-up from
+        // bottom, so flip using screen_h
+        let gl_x = x0;
+        let gl_y = self.screen_h as f32 - y1;
+        let gl_w = (x1 - x0).max(0.0);
+        let gl_h = (y1 - y0).max(0.0);
+
+        let mut rect = (
+            gl_x.round() as i32,
+            gl_y.round() as i32,
+            gl_w.round() as i32,
+            gl_h.round() as i32,
+        );
+
+        if let Some(&(px, py, pw, ph)) = self.scissor_stack.last() {
+            let nx = rect.0.max(px);
+            let ny = rect.1.max(py);
+            let nx2 = (rect.0 + rect.2).min(px + pw);
+            let ny2 = (rect.1 + rect.3).min(py + ph);
+            rect = (nx, ny, (nx2 - nx).max(0), (ny2 - ny).max(0));
+        }
+
+        self.scissor_stack.push(rect);
+        self.apply_scissor();
+    }
+
+    pub fn pop_scissor(&mut self) {
+        self.flush_now();
+        self.scissor_stack.pop();
+        self.apply_scissor();
+    }
+
+    pub fn apply_scissor(&self) {
+        unsafe {
+            if let Some(&(x, y, w, h)) = self.scissor_stack.last() {
+                gl::Enable(gl::SCISSOR_TEST);
+                gl::Scissor(x, y, w.max(0), h.max(0));
+            } else {
+                gl::Disable(gl::SCISSOR_TEST);
+            }
+        }
     }
 
     fn setup_buffers() -> (GLuint, GLuint, GLuint) {

@@ -1,5 +1,3 @@
-use glfw::Key::{self, W};
-
 use crate::font::{Font, draw_text, measure_text};
 use crate::renderer::Renderer;
 
@@ -19,6 +17,8 @@ pub enum WidgetKind {
         range: std::ops::Range<usize>,
         color: [f32; 4],
     },
+    ClipPush,
+    ClipPop,
 }
 
 pub struct Widget {
@@ -457,11 +457,22 @@ impl UiContext {
         });
 
         let inner_pad = 6.0;
+        let inner_width = (size[0] - inner_pad * 2.0).max(0.0);
+        let text_size = measure_text(font, buffer);
+
+        let scroll = (text_size[0] - inner_width).max(0.0);
+
         let text_pos = [
-            pos[0] + inner_pad,
+            pos[0] + inner_pad - scroll,
             pos[1] + (size[1] - font.pixel_height) * 0.5,
         ];
-        let text_size = measure_text(font, buffer);
+
+        self.widgets.push(Widget {
+            id,
+            pos: [pos[0] + 1.0, pos[1] + 1.0],
+            size: [(size[0] - 2.0).max(0.0), (size[1] - 2.0).max(0.0)],
+            kind: WidgetKind::ClipPush,
+        });
 
         let start = self.text_buffer.len();
         self.text_buffer.push_str(buffer);
@@ -490,6 +501,13 @@ impl UiContext {
             });
         }
 
+        self.widgets.push(Widget {
+            id,
+            pos: [0.0, 0.0],
+            size: [0.0, 0.0],
+            kind: WidgetKind::ClipPop,
+        });
+
         self.advance_parent(size);
         changed
     }
@@ -513,6 +531,7 @@ impl UiContext {
                 state.cursor[1] += size[1] + self.gap;
                 state.max_content_size[0] = state.max_content_size[0].max(size[0]);
             }
+            _ => {}
         }
     }
 
@@ -524,6 +543,8 @@ impl UiContext {
                     let label = &self.text_buffer[range.clone()];
                     draw_text(renderer, font, label, w.pos, *color)
                 }
+                WidgetKind::ClipPush => renderer.push_scissor(w.pos, w.size),
+                WidgetKind::ClipPop => renderer.pop_scissor(),
             }
         }
     }
